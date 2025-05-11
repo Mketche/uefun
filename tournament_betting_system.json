@@ -1,0 +1,535 @@
+{
+  "address": "3zaWRm1dLTw965NJD8qVVMm4ZoMP1HtzwFVrs8Wfa4yB",
+  "metadata": {
+    "name": "tournament_betting_system",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "用于赛事下注和代币质押的智能合约系统"
+  },
+  "instructions": [
+    {
+      "name": "close_tournament",
+      "discriminator": [
+        14,
+        80,
+        54,
+        9,
+        221,
+        239,
+        201,
+        35
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "tournament"
+          ]
+        },
+        {
+          "name": "tournament",
+          "writable": true
+        },
+        {
+          "name": "tournament_matchp_token",
+          "writable": true
+        },
+        {
+          "name": "authority_matchp_token",
+          "writable": true
+        },
+        {
+          "name": "tournament_vote_token",
+          "writable": true
+        },
+        {
+          "name": "vote_mint"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_tournament",
+      "discriminator": [
+        158,
+        137,
+        233,
+        231,
+        73,
+        132,
+        191,
+        68
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "tournament",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  111,
+                  117,
+                  114,
+                  110,
+                  97,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority_matchp_token",
+          "writable": true
+        },
+        {
+          "name": "tournament_matchp_token",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  111,
+                  117,
+                  114,
+                  110,
+                  97,
+                  109,
+                  101,
+                  110,
+                  116,
+                  95,
+                  109,
+                  97,
+                  116,
+                  99,
+                  104,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament"
+              }
+            ]
+          }
+        },
+        {
+          "name": "matchp_mint"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "stake_amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "initialize",
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "state",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "wanzi_mint"
+        },
+        {
+          "name": "matchp_mint"
+        },
+        {
+          "name": "vote_mint"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "place_bet",
+      "discriminator": [
+        222,
+        62,
+        67,
+        220,
+        63,
+        166,
+        126,
+        33
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "tournament",
+          "writable": true
+        },
+        {
+          "name": "bet",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "team"
+        },
+        {
+          "name": "user_wanzi_token",
+          "writable": true
+        },
+        {
+          "name": "user_vote_token",
+          "writable": true
+        },
+        {
+          "name": "tournament_wanzi_token",
+          "writable": true
+        },
+        {
+          "name": "tournament_vote_token",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "settle_bet",
+      "discriminator": [
+        115,
+        55,
+        234,
+        177,
+        227,
+        4,
+        10,
+        67
+      ],
+      "accounts": [
+        {
+          "name": "tournament",
+          "writable": true
+        },
+        {
+          "name": "bet",
+          "writable": true
+        },
+        {
+          "name": "user_wanzi_token",
+          "writable": true
+        },
+        {
+          "name": "user_vote_token",
+          "writable": true
+        },
+        {
+          "name": "tournament_wanzi_token",
+          "writable": true
+        },
+        {
+          "name": "tournament_vote_token",
+          "writable": true
+        },
+        {
+          "name": "vote_mint"
+        },
+        {
+          "name": "state"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "is_winner",
+          "type": "bool"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Bet",
+      "discriminator": [
+        147,
+        23,
+        35,
+        59,
+        15,
+        75,
+        155,
+        32
+      ]
+    },
+    {
+      "name": "State",
+      "discriminator": [
+        216,
+        146,
+        107,
+        94,
+        104,
+        75,
+        182,
+        177
+      ]
+    },
+    {
+      "name": "Team",
+      "discriminator": [
+        140,
+        218,
+        177,
+        140,
+        193,
+        241,
+        199,
+        106
+      ]
+    },
+    {
+      "name": "Tournament",
+      "discriminator": [
+        175,
+        139,
+        119,
+        242,
+        115,
+        194,
+        57,
+        92
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "TournamentNotActive",
+      "msg": "Tournament is not active"
+    },
+    {
+      "code": 6001,
+      "name": "TournamentNotClosed",
+      "msg": "Tournament is not closed"
+    },
+    {
+      "code": 6002,
+      "name": "BetAlreadySettled",
+      "msg": "Bet is already settled"
+    },
+    {
+      "code": 6003,
+      "name": "InvalidTokenAccount",
+      "msg": "Invalid token account"
+    },
+    {
+      "code": 6004,
+      "name": "InvalidTournamentAuthority",
+      "msg": "Invalid tournament authority"
+    }
+  ],
+  "types": [
+    {
+      "name": "Bet",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tournament",
+            "type": "pubkey"
+          },
+          {
+            "name": "team",
+            "type": "pubkey"
+          },
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "is_settled",
+            "type": "bool"
+          },
+          {
+            "name": "is_winner",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "State",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "wanzi_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "matchp_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "vote_mint",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Team",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tournament",
+            "type": "pubkey"
+          },
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "group",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Tournament",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "stake_amount",
+            "type": "u64"
+          },
+          {
+            "name": "is_active",
+            "type": "bool"
+          },
+          {
+            "name": "is_staked",
+            "type": "bool"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    }
+  ]
+}
