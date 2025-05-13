@@ -1,0 +1,7 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+1.不是必要的，不要随便新创建新文件夹
+2.不要修改anchor的版本
