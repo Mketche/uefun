@@ -31,48 +31,70 @@ pub mod tournament_betting_system {
         name: String,
         stake_amount: u64,
     ) -> Result<()> {
-        let tournament = &mut ctx.accounts.tournament;
-        // 设置赛事管理员
-        tournament.authority = ctx.accounts.authority.key();
-        // 设置赛事名称
-        tournament.name = name;
-        // 设置质押金额
-        tournament.stake_amount = stake_amount;
-        // 设置赛事为激活状态
-        tournament.is_active = true;
-        // 初始化为未质押状态
-        tournament.is_staked = false;
-        // 记录创建时间
-        tournament.created_at = Clock::get()?.unix_timestamp;
-        // 记录PDA bump
-        tournament.bump = ctx.bumps.tournament;
+        let authority_key = ctx.accounts.authority.key();
+        let current_timestamp = Clock::get()?.unix_timestamp;
+        let tournament_bump = ctx.bumps.tournament;
+        
+        {
+            // 设置赛事信息 - 放在单独作用域里避免借用冲突
+            let tournament = &mut ctx.accounts.tournament;
+            tournament.authority = authority_key;
+            tournament.name = name;
+            tournament.stake_amount = stake_amount;
+            tournament.is_active = true;
+            tournament.is_staked = false;
+            tournament.created_at = current_timestamp;
+            tournament.bump = tournament_bump;
+        }
         
         // 如果赛事方质押了matchp
         if stake_amount > 0 {
             // 转移matchp到合约账户
-            let cpi_accounts = Transfer {
-                from: ctx.accounts.authority_matchp_token.to_account_info(),
-                to: ctx.accounts.tournament_matchp_token.to_account_info(),
-                authority: ctx.accounts.authority.to_account_info(),
-            };
-            let cpi_program = ctx.accounts.token_program.to_account_info();
-            let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
-            token::transfer(cpi_ctx, stake_amount)?;
+            {
+                let cpi_accounts = Transfer {
+                    from: ctx.accounts.authority_matchp_token.to_account_info(),
+                    to: ctx.accounts.tournament_matchp_token.to_account_info(),
+                    authority: ctx.accounts.authority.to_account_info(),
+                };
+                
+                token::transfer(
+                    CpiContext::new(
+                        ctx.accounts.token_program.to_account_info(),
+                        cpi_accounts,
+                    ),
+                    stake_amount
+                )?;
+            }
             
             // 铸造vote给赛事方
-            let mint_accounts = MintTo {
-                mint: ctx.accounts.vote_mint.to_account_info(),
-                to: ctx.accounts.authority_vote_token.to_account_info(),
-                authority: ctx.accounts.vote_mint_authority.to_account_info(),
-            };
-            let cpi_ctx = CpiContext::new(
-                ctx.accounts.token_program.to_account_info(),
-                mint_accounts,
-            );
-            token::mint_to(cpi_ctx, stake_amount)?;
+            {
+                // 使用tournament PDA作为签名者铸造代币
+                let seeds = &[
+                    b"tournament".as_ref(),
+                    authority_key.as_ref(),
+                    &[ctx.accounts.tournament.bump],
+                ];
+                let signer_seeds = &[&seeds[..]];
+                
+                // 对vote代币进行铸币
+                let mint_accounts = MintTo {
+                    mint: ctx.accounts.vote_mint.to_account_info(),
+                    to: ctx.accounts.authority_vote_token.to_account_info(),
+                    authority: ctx.accounts.tournament.to_account_info(),
+                };
+                
+                token::mint_to(
+                    CpiContext::new_with_signer(
+                        ctx.accounts.token_program.to_account_info(),
+                        mint_accounts,
+                        signer_seeds,
+                    ),
+                    stake_amount
+                )?;
+            }
             
             // 更新赛事为已质押状态
-            tournament.is_staked = true;
+            ctx.accounts.tournament.is_staked = true;
         }
         
         Ok(())
@@ -100,6 +122,9 @@ pub mod tournament_betting_system {
         round.created_at = Clock::get()?.unix_timestamp;
         // 记录PDA bump
         round.bump = ctx.bumps.round;
+        // 初始化总下注额 (新增)
+        round.total_wanzi_bets = 0;
+        round.total_vote_bets = 0;
         Ok(())
     }
 
@@ -132,7 +157,7 @@ pub mod tournament_betting_system {
         amount: u64,
     ) -> Result<()> {
         let tournament = &ctx.accounts.tournament;
-        let round = &ctx.accounts.round;
+        let round = &mut ctx.accounts.round;
         
         // 检查赛事是否激活
         require!(tournament.is_active, TournamentError::TournamentNotActive);
@@ -176,6 +201,8 @@ pub mod tournament_betting_system {
             let cpi_program = ctx.accounts.token_program.to_account_info();
             let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
             token::transfer(cpi_ctx, amount)?;
+            // 累加VOTE下注总额
+            round.total_vote_bets = round.total_vote_bets.checked_add(amount).ok_or(TournamentError::Overflow)?;
         } else {
             // 检查用户是否有足够的wanzi代币
             require!(
@@ -192,6 +219,8 @@ pub mod tournament_betting_system {
             let cpi_program = ctx.accounts.token_program.to_account_info();
             let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
             token::transfer(cpi_ctx, amount)?;
+            // 累加wanzi下注总额
+            round.total_wanzi_bets = round.total_wanzi_bets.checked_add(amount).ok_or(TournamentError::Overflow)?;
         }
         
         Ok(())
@@ -238,63 +267,60 @@ pub mod tournament_betting_system {
         let bet = &mut ctx.accounts.bet;
         let round = &ctx.accounts.round;
         let winner_team = &ctx.accounts.winner_team;
+        let tournament = &ctx.accounts.tournament;
         
-        // 检查轮次是否已完成
         require!(round.is_completed, TournamentError::RoundNotCompleted);
-        // 检查下注是否已结算
         require!(!bet.is_settled, TournamentError::BetAlreadySettled);
-        // 检查下注是否属于该轮次
         require!(bet.round == round.key(), TournamentError::BetNotInRound);
         
-        // 检查下注的队伍是否是获胜队伍
         let is_winner = bet.team == winner_team.key() && winner_team.is_winner;
         
-        // 如果是赢家，转移奖励
         if is_winner {
-            if ctx.accounts.tournament.is_staked {
-                // 使用vote奖励
-                let seeds = &[
-                    b"tournament".as_ref(),
-                    ctx.accounts.tournament.authority.as_ref(),
-                    &[ctx.accounts.tournament.bump],
-                ];
-                let signer = &[&seeds[..]];
-                
-                let transfer_accounts = Transfer {
-                    from: ctx.accounts.tournament_vote_token.to_account_info(),
-                    to: ctx.accounts.user_vote_token.to_account_info(),
-                    authority: ctx.accounts.tournament.to_account_info(),
-                };
-                let cpi_ctx = CpiContext::new_with_signer(
-                    ctx.accounts.token_program.to_account_info(),
-                    transfer_accounts,
-                    signer,
-                );
-                token::transfer(cpi_ctx, bet.amount)?;
+            let authority_key = tournament.authority;
+            let seeds = &[
+                b"tournament".as_ref(),
+                authority_key.as_ref(), // 使用创建tournament时的authority pubkey
+                &[tournament.bump],
+            ];
+            let signer = &[&seeds[..]];
+
+            if tournament.is_staked {
+                // VOTE赛事: 赢家获得所有VOTE赌注
+                let reward_amount = round.total_vote_bets;
+                if reward_amount > 0 {
+                    token::transfer(
+                        CpiContext::new_with_signer(
+                            ctx.accounts.token_program.to_account_info(),
+                            Transfer {
+                                from: ctx.accounts.tournament_vote_token.to_account_info(),
+                                to: ctx.accounts.user_vote_token.to_account_info(),
+                                authority: tournament.to_account_info(),
+                            },
+                            signer,
+                        ),
+                        reward_amount,
+                    )?;
+                }
             } else {
-                // 使用wanzi奖励
-                let seeds = &[
-                    b"tournament".as_ref(),
-                    ctx.accounts.tournament.authority.as_ref(),
-                    &[ctx.accounts.tournament.bump],
-                ];
-                let signer = &[&seeds[..]];
-                
-                let transfer_accounts = Transfer {
-                    from: ctx.accounts.tournament_wanzi_token.to_account_info(),
-                    to: ctx.accounts.user_wanzi_token.to_account_info(),
-                    authority: ctx.accounts.tournament.to_account_info(),
-                };
-                let cpi_ctx = CpiContext::new_with_signer(
-                    ctx.accounts.token_program.to_account_info(),
-                    transfer_accounts,
-                    signer,
-                );
-                token::transfer(cpi_ctx, bet.amount)?;
+                // WANZI赛事: 赢家获得所有WANZI赌注
+                let reward_amount = round.total_wanzi_bets;
+                if reward_amount > 0 {
+                    token::transfer(
+                        CpiContext::new_with_signer(
+                            ctx.accounts.token_program.to_account_info(),
+                            Transfer {
+                                from: ctx.accounts.tournament_wanzi_token.to_account_info(),
+                                to: ctx.accounts.user_wanzi_token.to_account_info(),
+                                authority: tournament.to_account_info(),
+                            },
+                            signer,
+                        ),
+                        reward_amount,
+                    )?;
+                }
             }
         }
         
-        // 更新下注状态
         bet.is_settled = true;
         bet.is_winner = is_winner;
         
@@ -389,6 +415,64 @@ pub mod tournament_betting_system {
         state.token_faucet_program_id = new_token_faucet_program_id;
         Ok(())
     }
+
+    /// 对已创建的赛事进行质押
+    /// 转移matchp代币到合约账户，并铸造相应的vote代币
+    pub fn stake_tournament(
+        ctx: Context<StakeTournament>,
+        amount: u64,
+    ) -> Result<()> {
+        // 检查赛事是否激活
+        require!(ctx.accounts.tournament.is_active, TournamentError::TournamentNotActive);
+        // 检查赛事是否已经质押
+        require!(!ctx.accounts.tournament.is_staked, TournamentError::TournamentAlreadyStaked);
+        
+        // 检查质押金额
+        require!(amount > 0, TournamentError::InvalidStakeAmount);
+        
+        // 转移matchp到合约账户
+        token::transfer(
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.authority_matchp_token.to_account_info(),
+                    to: ctx.accounts.tournament_matchp_token.to_account_info(),
+                    authority: ctx.accounts.authority.to_account_info(),
+                },
+            ),
+            amount
+        )?;
+        
+        // 使用tournament PDA作为签名者铸造代币
+        let authority_key = ctx.accounts.authority.key();
+        let seeds = &[
+            b"tournament".as_ref(),
+            authority_key.as_ref(),
+            &[ctx.accounts.tournament.bump],
+        ];
+        let signer_seeds = &[&seeds[..]];
+        
+        // 铸造vote给赛事方
+        token::mint_to(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                MintTo {
+                    mint: ctx.accounts.vote_mint.to_account_info(),
+                    to: ctx.accounts.authority_vote_token.to_account_info(),
+                    authority: ctx.accounts.tournament.to_account_info(),
+                },
+                signer_seeds,
+            ),
+            amount
+        )?;
+        
+        // 更新赛事状态
+        let tournament = &mut ctx.accounts.tournament;
+        tournament.stake_amount = amount;
+        tournament.is_staked = true;
+        
+        Ok(())
+    }
 }
 
 /// 初始化指令所需的账户结构
@@ -417,8 +501,6 @@ pub struct Initialize<'info> {
     
     /// 系统程序
     pub system_program: Program<'info, System>,
-    /// 代币程序
-    pub token_program: Program<'info, Token>,
     /// 租金系统变量
     pub rent: Sysvar<'info, Rent>,
 }
@@ -474,9 +556,6 @@ pub struct CreateTournament<'info> {
     pub matchp_mint: Box<Account<'info, Mint>>,
     /// vote代币铸造器
     pub vote_mint: Box<Account<'info, Mint>>,
-    /// vote代币铸造权限账户
-    /// CHECK: 这是可以铸造vote代币的权限账户
-    pub vote_mint_authority: AccountInfo<'info>,
     
     /// 系统程序
     pub system_program: Program<'info, System>,
@@ -573,6 +652,7 @@ pub struct PlaceBet<'info> {
     
     /// 轮次账户，验证轮次是否激活
     #[account(
+        mut,
         constraint = round.tournament == tournament.key(),
         constraint = round.is_active == true
     )]
@@ -785,6 +865,51 @@ pub struct UpdateTokenFaucet<'info> {
     pub state: Account<'info, State>,
 }
 
+/// 质押赛事指令所需的账户结构
+#[derive(Accounts)]
+pub struct StakeTournament<'info> {
+    /// 赛事管理员，支付质押费用
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    
+    /// 赛事账户，验证调用者是管理员
+    #[account(
+        mut,
+        constraint = tournament.authority == authority.key(),
+        constraint = tournament.is_active == true,
+        seeds = [b"tournament", authority.key().as_ref()],
+        bump = tournament.bump
+    )]
+    pub tournament: Account<'info, Tournament>,
+    
+    /// 管理员的matchp代币账户
+    #[account(mut)]
+    pub authority_matchp_token: Box<Account<'info, TokenAccount>>,
+    
+    /// 管理员的vote代币账户
+    #[account(mut)]
+    pub authority_vote_token: Box<Account<'info, TokenAccount>>,
+    
+    /// 赛事的matchp代币账户
+    #[account(
+        mut,
+        constraint = tournament_matchp_token.mint == matchp_mint.key()
+    )]
+    pub tournament_matchp_token: Box<Account<'info, TokenAccount>>,
+    
+    /// matchp代币铸造器
+    pub matchp_mint: Box<Account<'info, Mint>>,
+    /// vote代币铸造器
+    #[account(
+        mut,
+        constraint = vote_mint.mint_authority.unwrap() == tournament.key()
+    )]
+    pub vote_mint: Box<Account<'info, Mint>>,
+    
+    /// 代币程序
+    pub token_program: Program<'info, Token>,
+}
+
 /// 状态账户数据结构
 #[account]
 pub struct State {
@@ -853,6 +978,10 @@ pub struct TournamentRound {
     pub created_at: i64,
     /// PDA bump
     pub bump: u8,
+    /// 该轮次中WANZI代币的总下注额
+    pub total_wanzi_bets: u64,
+    /// 该轮次中VOTE代币的总下注额
+    pub total_vote_bets: u64,
 }
 
 impl TournamentRound {
@@ -863,7 +992,9 @@ impl TournamentRound {
                           1 +  // is_active
                           1 +  // is_completed
                           8 +  // created_at
-                          1;   // bump
+                          1 +  // bump
+                          8 +  // total_wanzi_bets (u64)
+                          8;   // total_vote_bets (u64)
 }
 
 /// 团队账户数据结构
@@ -965,4 +1096,13 @@ pub enum TournamentError {
     /// 无效的团队
     #[msg("Invalid team")]
     InvalidTeam,
+    /// 赛事已质押
+    #[msg("Tournament is already staked")]
+    TournamentAlreadyStaked,
+    /// 无效的质押金额
+    #[msg("Invalid stake amount")]
+    InvalidStakeAmount,
+    /// 溢出错误
+    #[msg("Overflow error")]
+    Overflow,
 }
